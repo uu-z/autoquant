@@ -12,6 +12,14 @@ def compute_factors(df):
     # Simple moving averages
     df['sma_20'] = df['close'].rolling(20).mean()
     df['sma_60'] = df['close'].rolling(60).mean()
+
+    # RSI
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
+
     return df
 
 def generate_signals(df):
@@ -21,8 +29,10 @@ def generate_signals(df):
         df: Dataframe with 'signal' column (1=buy, -1=sell, 0=hold)
     """
     df['signal'] = 0
-    df.loc[df['sma_20'] > df['sma_60'], 'signal'] = 1
-    df.loc[df['sma_20'] < df['sma_60'], 'signal'] = -1
+    # Buy: MA crossover + RSI not overbought
+    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 70), 'signal'] = 1
+    # Sell: MA crossover + RSI not oversold
+    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 30), 'signal'] = -1
     return df
 
 def position_sizing(df, capital):
