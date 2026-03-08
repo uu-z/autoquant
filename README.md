@@ -26,11 +26,25 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Manually run a single backtest (~30 sec)
-python prepare.py run --mode fast
+# 2. Run complete test suite (one command)
+./test_all.sh
 ```
 
-If the above command works, your setup is ready for autonomous research mode.
+The test script will:
+- ✅ Run 9 unit tests
+- ✅ Execute 30-day backtest
+- ✅ Perform factor IC analysis
+
+If all tests pass, your setup is ready for autonomous research mode.
+
+### Manual testing (optional)
+
+```bash
+# Run individual components
+python prepare.py run --mode fast      # Quick backtest
+python research.py --mode fast         # Factor analysis
+pytest -v                              # Unit tests only
+```
 
 ## Running the agent
 
