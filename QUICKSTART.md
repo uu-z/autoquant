@@ -1,10 +1,10 @@
-# 🤖 AI Autonomous Iteration Quick Start
+# 🚀 Quick Start Guide
 
-## One-Command Launch
+## Launch AI Agent
 
-In Claude Code, run:
+In Claude Code:
 ```
-Hi, have a look at program.md and let's kick off a new experiment! let's do the setup first.
+Hi, have a look at program.md and let's kick off a new experiment!
 ```
 
 AI will automatically:
@@ -51,6 +51,17 @@ git log --oneline | head -5
 
 # View best results
 sort -t$'\t' -k2 -rn results.tsv | head -5
+
+# Check last backtest output
+tail -50 run.log
+```
+
+**Results format:**
+```
+timestamp         score   description
+2026-03-08_18:00  0.608   add RSI filter
+2026-03-08_18:01  0.590   add MA crossover (discarded)
+2026-03-08_18:02  0.625   optimize RSI params
 ```
 
 ## Stop AI
@@ -62,9 +73,10 @@ Stop the experiment loop now.
 
 ## Expected Results
 
-- **Speed**: ~30 seconds per iteration
+- **Speed**: ~30 seconds per iteration (fast mode)
 - **8-hour run**: ~960 experiments
-- **Goal**: Find strategy with Score > 0.8
+- **Goal**: Find strategy with composite score > 0.8
+- **Baseline**: Initial score typically ~0.5-0.6
 
 ## Key Files
 
@@ -109,8 +121,9 @@ AI will follow these rules.
 # Check last run
 tail -50 run.log
 
-# Run tests manually
-./test_all.sh
+# Test manually
+python prepare.py run --mode fast
+python research.py --mode fast
 ```
 
 ### Score keeps dropping

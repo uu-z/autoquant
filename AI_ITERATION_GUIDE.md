@@ -7,7 +7,15 @@
 Hi, have a look at program.md and let's kick off a new experiment!
 ```
 
-AI will run **forever** until you stop it.
+AI will run **indefinitely** until you stop it.
+
+## Overview
+
+This system enables AI agents to autonomously research and improve quantitative trading strategies through:
+- **Factor research**: Discovering predictive technical indicators
+- **Strategy modification**: Implementing and testing new ideas
+- **Performance evaluation**: Keeping improvements, discarding failures
+- **Git-based tracking**: Every experiment is a commit
 
 ## What Happens
 
@@ -42,7 +50,6 @@ python research.py --optimize MA            # Grid search parameters
 # Testing
 python prepare.py run --mode fast           # Quick backtest (30s)
 python prepare.py validate --mode fast      # Walk-forward validation
-./test_all.sh                               # Complete test suite
 
 # Git workflow
 git commit -m "description"                 # Save experiment
@@ -87,9 +94,11 @@ AI will follow your instructions.
 
 ## Expected Performance
 
-- **Speed**: 30 seconds/iteration
-- **Overnight (8h)**: ~960 experiments
-- **Goal**: Score > 0.8
+- **Speed**: 30 seconds/iteration (fast mode), 5 minutes (full mode)
+- **Overnight (8h)**: ~960 experiments (fast mode)
+- **Goal**: Composite score > 0.8
+- **Baseline**: Initial score typically 0.5-0.6
+- **Metric**: composite_score = sharpe*0.5 - drawdown*0.3 + winrate*0.2
 
 ## Example Session
 
@@ -117,7 +126,7 @@ AI: [Iteration 3] Optimizing RSI parameters...
 **AI stuck?**
 ```bash
 tail -50 run.log
-./test_all.sh
+python prepare.py run --mode fast  # Test manually
 ```
 
 **Want to restart from best?**
@@ -128,6 +137,47 @@ git reset --hard <best-commit-hash>
 
 **Change exploration strategy?**
 Edit `program.md` and AI will adapt.
+
+## Research Workflow
+
+The AI follows a systematic research process:
+
+### 1. Factor Discovery
+```bash
+python research.py --mode fast
+```
+- Analyzes 20+ technical factors
+- Calculates Information Coefficient (IC)
+- Identifies factors with IC > 0.05
+
+### 2. Parameter Optimization
+```bash
+python research.py --optimize MA --mode fast
+```
+- Grid search over parameter space
+- Tests combinations systematically
+- Finds optimal settings
+
+### 3. Multi-Market Validation
+```bash
+python research.py --multi-market
+```
+- Tests on BTC, ETH, BNB
+- Ensures robustness across assets
+- Validates generalization
+
+### 4. Strategy Deployment
+- Modify `strategy.py` with best factors
+- Run backtest with `prepare.py run`
+- Keep if improved, discard if worse
+
+### 5. Walk-Forward Validation
+```bash
+python prepare.py validate --mode fast
+```
+- Tests on out-of-sample periods
+- Prevents overfitting
+- Confirms real-world viability
 
 ---
 
