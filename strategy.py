@@ -10,8 +10,8 @@ def compute_factors(df):
         df: Dataframe with added factor columns
     """
     # Simple moving averages
-    df['sma_20'] = df['close'].rolling(20).mean()
-    df['sma_60'] = df['close'].rolling(60).mean()
+    df['sma_20'] = df['close'].rolling(18).mean()
+    df['sma_60'] = df['close'].rolling(55).mean()
 
     # RSI
     delta = df['close'].diff()
