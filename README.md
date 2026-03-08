@@ -26,11 +26,25 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Manually run a single backtest (~30 sec)
-python prepare.py run --mode fast
+# 2. Run complete test suite (one command)
+./test_all.sh
 ```
 
-If the above command works, your setup is ready for autonomous research mode.
+The test script will:
+- ✅ Run 9 unit tests
+- ✅ Execute 30-day backtest
+- ✅ Perform factor IC analysis
+
+If all tests pass, your setup is ready for autonomous research mode.
+
+### Manual testing (optional)
+
+```bash
+# Run individual components
+python prepare.py run --mode fast      # Quick backtest
+python research.py --mode fast         # Factor analysis
+pytest -v                              # Unit tests only
+```
 
 ## Running the agent
 
@@ -47,15 +61,26 @@ The `program.md` file contains complete instructions for the AI agent to:
 
 The agent will run **indefinitely** until you manually stop it.
 
+**📖 See [AI_ITERATION_GUIDE.md](AI_ITERATION_GUIDE.md) for detailed instructions**
+
 ## Project structure
 
 ```
-prepare.py      — backtest engine + utilities (do not modify)
-strategy.py     — AI modifies this (factors, signals, position sizing)
-program.md      — AI instructions (human edits this)
-requirements.txt — dependencies
-results.tsv     — experiment log (auto-generated)
+prepare.py          — backtest engine + utilities (read-only)
+factors.py          — factor library with IC calculation (read-only)
+research.py         — factor analysis and optimization (read-only)
+strategy.py         — AI modifies this (uses factors from library)
+program.md          — AI instructions (human edits this)
+test_all.sh         — one-command test suite
+test_*.py           — unit tests
+requirements.txt    — dependencies
+results.tsv         — experiment log (auto-generated)
 ```
+
+**Documentation:**
+- [AI_ITERATION_GUIDE.md](AI_ITERATION_GUIDE.md) - Complete guide for AI autonomous research
+- [QUICKSTART.md](QUICKSTART.md) - Quick reference and troubleshooting
+- [WORKFLOW.md](WORKFLOW.md) - Research workflow (IC analysis → validation → deployment)
 
 ## Design choices
 

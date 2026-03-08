@@ -1,142 +1,133 @@
-# AutoQuant Quick Start
+# 🤖 AI Autonomous Iteration Quick Start
 
-## Initial Setup
+## One-Command Launch
+
+In Claude Code, run:
+```
+Hi, have a look at program.md and let's kick off a new experiment! let's do the setup first.
+```
+
+AI will automatically:
+1. Create experiment branch `autoquant/<date>`
+2. Run tests to verify environment
+3. Initialize results.tsv
+4. **Loop forever**: research → modify → test → keep/discard
+
+## What AI Does
+
+```
+[Loop 1] Factor research
+→ python research.py --mode fast
+→ Found RSI_14_65_35 IC=0.079 (best)
+
+[Loop 2] Deploy to strategy
+→ Edit strategy.py: self.factor = RSIFilter(14, 65, 35)
+→ git commit -m "use RSI filter"
+→ python prepare.py run --mode fast
+→ Score: 0.608 (improved ✓) → keep
+
+[Loop 3] Try factor combination
+→ Edit strategy.py: add MACrossover
+→ git commit -m "add MA crossover"
+→ python prepare.py run --mode fast
+→ Score: 0.590 (worse ✗) → git reset --hard HEAD~1
+
+[Loop 4] Parameter optimization
+→ python research.py --optimize MA --mode fast
+→ Found optimal MA(15, 60)
+→ Deploy and test...
+
+...continues forever until you stop it
+```
+
+## Monitor Progress
 
 ```bash
-# 1. Clone/navigate to repo
-cd autoquant
+# Watch experiment log
+tail -f results.tsv
 
-# 2. Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# View current score
+git log --oneline | head -5
 
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Test single backtest
-python prepare.py run --mode fast
+# View best results
+sort -t$'\t' -k2 -rn results.tsv | head -5
 ```
 
-Expected output:
-```
-Fetching 720 hours of data...
+## Stop AI
 
-Results:
-  Sharpe Ratio: 0.930
-  Max Drawdown: 0.071
-  Win Rate: 0.400
-  Total Return: 2.14%
-  Trades: 10
-  Score: 0.524
+In Claude Code, press `Ctrl+C` or send:
+```
+Stop the experiment loop now.
 ```
 
-## Running AI Autonomous Mode
+## Expected Results
 
-### Start the AI agent
+- **Speed**: ~30 seconds per iteration
+- **8-hour run**: ~960 experiments
+- **Goal**: Find strategy with Score > 0.8
 
-In Claude Code (or any AI agent with tool use), prompt:
+## Key Files
 
-```
-Hi have a look at program.md and let's kick off a new experiment! let's do the setup first.
-```
+- `program.md` - AI instructions (you can edit)
+- `strategy.py` - AI modifies this file
+- `results.tsv` - Experiment log
+- `factors.py` - Factor library (read-only)
+- `research.py` - Research tools (read-only)
 
-The AI will:
-1. Ask you for a run tag (e.g., "mar8")
-2. Create branch `autoquant/mar8`
-3. Initialize `results.tsv`
-4. Start the autonomous loop
+## Advanced Usage
 
-### What the AI does
+### Customize AI Behavior
 
-```
-Loop forever:
-  1. Edit strategy.py (add RSI, adjust MA, etc.)
-  2. git commit -m "try RSI filter"
-  3. python prepare.py run --mode fast > run.log 2>&1
-  4. grep "Score:" run.log
-  5. If improved: keep commit
-     If worse: git reset --hard HEAD~1
-  6. Append result to results.tsv
-  7. Repeat (never stops until you interrupt)
-```
+Edit `program.md` "Research directions" section:
 
-### Monitor progress
+```markdown
+## Research directions
 
-```bash
-# View experiment log
-cat results.tsv
-
-# View git history
-git log --oneline
-
-# View current strategy
-cat strategy.py
-
-# View best result
-python prepare.py best
+Priority exploration:
+1. Volatility breakout strategies
+2. Multi-timeframe confirmation
+3. Dynamic stop-loss
 ```
 
-### Stop the AI
+### Set Constraints
 
-Simply interrupt the AI agent (Ctrl+C in terminal, or stop in UI).
+Add to `program.md`:
 
-## Example Session
-
+```markdown
+**Additional constraints**:
+- Minimum trades > 20
+- Maximum drawdown < 15%
+- Must have positive returns on all 3 markets
 ```
-You: Hi have a look at program.md and let's kick off a new experiment!
 
-AI: I'll help you set up a new autoquant experiment. Let me propose a run tag
-    based on today's date: "mar8". Is this okay?
-
-You: yes
-
-AI: Creating branch autoquant/mar8...
-    [git checkout -b autoquant/mar8]
-
-    Initializing results.tsv...
-    [creates results.tsv with header and baseline]
-
-    Setup complete! Starting autonomous loop...
-
-    === Iteration 1 ===
-    Idea: Add RSI filter to reduce false signals
-    [edits strategy.py]
-    [git commit -m "add RSI filter"]
-    [runs backtest]
-    Score: 0.608 (improved from 0.524) ✓
-    Keeping commit.
-
-    === Iteration 2 ===
-    Idea: Try dynamic position sizing based on volatility
-    [edits strategy.py]
-    [git commit -m "dynamic position sizing"]
-    [runs backtest]
-    Score: 0.590 (worse than 0.608) ✗
-    Rolling back.
-
-    === Iteration 3 ===
-    ...continues indefinitely...
-```
+AI will follow these rules.
 
 ## Troubleshooting
 
-**Backtest fails:**
-- Check internet connection (needs Binance API)
-- Verify dependencies: `pip list | grep -E "ccxt|pandas|numpy"`
-- Check Python version: `python --version` (need 3.10+)
+### AI stuck
+```bash
+# Check last run
+tail -50 run.log
 
-**Git errors:**
-- Ensure you're in a git repo: `git status`
-- Check branch: `git branch`
+# Run tests manually
+./test_all.sh
+```
 
-**No improvements:**
-- Let it run longer (100+ iterations)
-- Check results.tsv for patterns
-- Review strategy.py for bugs
+### Score keeps dropping
+```bash
+# Return to best commit
+git log --oneline results.tsv
+git reset --hard <best-commit>
 
-## Tips
+# Let AI continue from here
+```
 
-- **Fast iteration**: Use `--mode fast` (30s per experiment)
-- **Final validation**: Use `--mode full` (5min, more reliable)
-- **Let it run overnight**: ~1000 experiments in 8 hours (fast mode)
-- **Review in morning**: Check results.tsv and git log
+### Want more aggressive exploration
+Add to `program.md`:
+```markdown
+**Exploration strategy**: Try completely different approach every 5 iterations
+```
+
+---
+
+**Remember**: AI runs indefinitely until you stop it. Perfect for overnight runs!
