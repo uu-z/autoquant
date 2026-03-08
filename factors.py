@@ -9,15 +9,22 @@ Each factor:
 
 import pandas as pd
 import numpy as np
+from typing import Optional
 
 
 class Factor:
     """Base factor class"""
 
-    def __init__(self, name=None):
+    def __init__(self, name: Optional[str] = None) -> None:
         self.name = name or self.__class__.__name__
 
-    def compute(self, df):
+    def _require_columns(self, df: pd.DataFrame, cols: list) -> None:
+        """Validate required columns exist in DataFrame"""
+        missing = [c for c in cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"{self.name}: Missing required columns: {missing}")
+
+    def compute(self, df: pd.DataFrame) -> pd.Series:
         """
         Compute factor signal
 
@@ -29,7 +36,7 @@ class Factor:
         """
         raise NotImplementedError
 
-    def ic(self, df, forward_periods=5):
+    def ic(self, df: pd.DataFrame, forward_periods: int = 5) -> float:
         """
         Calculate Information Coefficient
 
@@ -53,12 +60,12 @@ class Factor:
 class MACrossover(Factor):
     """Moving Average Crossover"""
 
-    def __init__(self, fast=20, slow=60):
+    def __init__(self, fast: int = 20, slow: int = 60) -> None:
         super().__init__(f"MA_{fast}_{slow}")
         self.fast = fast
         self.slow = slow
 
-    def compute(self, df):
+    def compute(self, df: pd.DataFrame) -> pd.Series:
         # Use precomputed or calculate
         if f'sma_{self.fast}' in df.columns:
             ma_fast = df[f'sma_{self.fast}']
@@ -79,13 +86,14 @@ class MACrossover(Factor):
 class RSIFilter(Factor):
     """RSI Overbought/Oversold Filter"""
 
-    def __init__(self, window=14, upper=70, lower=30):
+    def __init__(self, window: int = 14, upper: int = 70, lower: int = 30) -> None:
         super().__init__(f"RSI_{window}_{upper}_{lower}")
         self.window = window
         self.upper = upper
         self.lower = lower
 
-    def compute(self, df):
+    def compute(self, df: pd.DataFrame) -> pd.Series:
+        self._require_columns(df, [f'rsi_{self.window}'])
         rsi = df[f'rsi_{self.window}']
 
         signal = pd.Series(0, index=df.index)
@@ -97,12 +105,13 @@ class RSIFilter(Factor):
 class MomentumFilter(Factor):
     """Price Momentum Filter"""
 
-    def __init__(self, window=5, threshold=0.02):
+    def __init__(self, window: int = 5, threshold: float = 0.02) -> None:
         super().__init__(f"Momentum_{window}_{threshold}")
         self.window = window
         self.threshold = threshold
 
-    def compute(self, df):
+    def compute(self, df: pd.DataFrame) -> pd.Series:
+        self._require_columns(df, [f'momentum_{self.window}'])
         momentum = df[f'momentum_{self.window}']
 
         signal = pd.Series(0, index=df.index)
@@ -114,11 +123,12 @@ class MomentumFilter(Factor):
 class VolatilityFilter(Factor):
     """ATR-based Volatility Filter"""
 
-    def __init__(self, threshold=0.03):
+    def __init__(self, threshold: float = 0.03) -> None:
         super().__init__(f"Volatility_{threshold}")
         self.threshold = threshold
 
-    def compute(self, df):
+    def compute(self, df: pd.DataFrame) -> pd.Series:
+        self._require_columns(df, ['atr_14', 'close'])
         atr_pct = df['atr_14'] / df['close']
 
         # High volatility: reduce exposure
@@ -130,11 +140,13 @@ class VolatilityFilter(Factor):
 class BollingerBands(Factor):
     """Bollinger Bands Mean Reversion"""
 
-    def __init__(self, window=20):
+    def __init__(self, window: int = 20) -> None:
         super().__init__(f"BB_{window}")
         self.window = window
 
-    def compute(self, df):
+    def compute(self, df: pd.DataFrame) -> pd.Series:
+        self._require_columns(df, [f'bb_upper_{self.window}', f'bb_lower_{self.window}', 'close'])
+
         bb_upper = df[f'bb_upper_{self.window}']
         bb_lower = df[f'bb_lower_{self.window}']
         close = df['close']

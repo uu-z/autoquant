@@ -1,6 +1,9 @@
 # strategy.py - Factor-based strategy
 
-from factors import MACrossover, RSIFilter, MomentumFilter, FactorCombiner
+from factors import MomentumFilter
+import numpy as np
+import pandas as pd
+from typing import Dict, Any
 
 
 class Strategy:
@@ -12,19 +15,9 @@ class Strategy:
     - Ensemble IC: ~0.15 (better than individual)
     """
 
-    def __init__(self):
-        # Build factor ensemble (use only positive IC factors)
-        self.factors = [
-            RSIFilter(14, 65, 35),      # IC: 0.077 (positive)
-            MACrossover(15, 60),        # IC: 0.064 (positive)
-        ]
-
-        # Weight by IC magnitude
-        self.combiner = FactorCombiner(
-            self.factors,
-            weights=[0.55, 0.45],  # Proportional to IC
-            method='vote'  # Use voting instead of weighted
-        )
+    def __init__(self) -> None:
+        # Single factor strategy (multi-market validated)
+        self.factor = MomentumFilter(5, 0.015)
 
         # Risk management state
         self.state = {
@@ -40,11 +33,11 @@ class Strategy:
             'increase_after_wins': 3,
         }
 
-    def initialize(self, df, initial_capital):
+    def initialize(self, df: pd.DataFrame, initial_capital: float) -> None:
         """Called once before backtest"""
         pass
 
-    def compute_factors(self, df):
+    def compute_factors(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Compute factor signals.
         All indicators are precomputed in prepare.py
@@ -52,20 +45,19 @@ class Strategy:
         # Factors compute their own signals
         return df
 
-    def generate_signals(self, df):
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Generate trading signals using factor ensemble.
+        Generate trading signals using factor.
 
         Returns:
             df with 'signal' column: 1=buy, -1=sell, 0=hold
         """
-        # Use factor combiner
-        df['signal'] = self.combiner.compute(df)
+        df['signal'] = self.factor.compute(df)
         return df
 
-    def position_sizing(self, df, capital, current_position, context):
+    def position_sizing(self, df: pd.DataFrame, capital: float, current_position: float, context: Dict[str, Any]) -> float:
         """
-        Dynamic position sizing based on win/loss streaks.
+        Dynamic position sizing based on volatility (ATR).
 
         Args:
             df: Historical data up to current bar
@@ -76,7 +68,28 @@ class Strategy:
         Returns:
             float: Position size (0-1 range)
         """
-        size = self.params['position_base']
+        base_size = self.params['position_base']
+
+        # Volatility-based sizing
+        if 'atr_14' in df.columns and len(df) > 0:
+            current_atr = df['atr_14'].iloc[-1]
+            current_price = df['close'].iloc[-1]
+
+            # Check if ATR is valid (not NaN)
+            if not np.isnan(current_atr) and current_atr > 0:
+                current_vol = current_atr / current_price
+
+                # Target volatility: 3% (typical crypto)
+                target_vol = 0.03
+                vol_adjustment = target_vol / max(current_vol, 0.01)  # Avoid division by zero
+                vol_adjustment = np.clip(vol_adjustment, 0.5, 1.5)  # Limit adjustment
+
+                size = base_size * vol_adjustment
+            else:
+                # ATR not ready yet, use base size
+                size = base_size
+        else:
+            size = base_size
 
         # Reduce after consecutive losses
         if self.state['consecutive_losses'] >= self.params['reduce_after_losses']:
@@ -86,9 +99,9 @@ class Strategy:
         if self.state['consecutive_wins'] >= self.params['increase_after_wins']:
             size = min(0.95, size * 1.1)
 
-        return size
+        return np.clip(size, 0.1, 0.95)
 
-    def on_trade(self, trade, df):
+    def on_trade(self, trade: Dict[str, Any], df: pd.DataFrame) -> None:
         """
         Update state after each trade.
 

@@ -15,20 +15,23 @@ import numpy as np
 import argparse
 import importlib.util
 
-def enrich_data(df):
-    """Precompute common technical indicators for strategy to use"""
-    # Moving averages (multiple windows)
-    for window in [5, 10, 15, 20, 25, 30, 50, 60, 100, 200]:
+# Trading costs
+MAKER_FEE = 0.0002  # 0.02% Binance maker fee
+TAKER_FEE = 0.0004  # 0.04% Binance taker fee
+BASE_SLIPPAGE = 0.0005  # 0.05% base slippage
+
+# Indicator windows
+SMA_WINDOWS = [5, 10, 15, 20, 25, 30, 50, 60, 100, 200]
+EMA_WINDOWS = [12, 26]
+RSI_WINDOWS = [7, 10, 14, 21]
+ATR_WINDOWS = [14]
+BB_WINDOWS = [20, 30]
+
+def _add_moving_averages(df):
+    """Add SMA and EMA indicators"""
+    for window in SMA_WINDOWS:
         df[f'sma_{window}'] = df['close'].rolling(window).mean()
         df[f'ema_{window}'] = df['close'].ewm(span=window).mean()
-
-    # RSI (multiple windows)
-    for window in [7, 10, 14, 21]:
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window).mean()
-        rs = gain / loss
-        df[f'rsi_{window}'] = 100 - (100 / (1 + rs))
 
     # MACD
     ema12 = df['close'].ewm(span=12).mean()
@@ -36,9 +39,33 @@ def enrich_data(df):
     df['macd'] = ema12 - ema26
     df['macd_signal'] = df['macd'].ewm(span=9).mean()
     df['macd_hist'] = df['macd'] - df['macd_signal']
+    return df
 
+def _add_oscillators(df):
+    """Add RSI and momentum indicators"""
+    # RSI (multiple windows) - compute delta once
+    delta = df['close'].diff()
+    for window in RSI_WINDOWS:
+        gain = (delta.where(delta > 0, 0)).rolling(window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window).mean()
+        rs = gain / loss
+        df[f'rsi_{window}'] = 100 - (100 / (1 + rs))
+
+    # Price momentum
+    for window in [3, 5, 10, 20]:
+        df[f'momentum_{window}'] = df['close'].pct_change(window)
+
+    # Stochastic
+    low_14 = df['low'].rolling(14).min()
+    high_14 = df['high'].rolling(14).max()
+    df['stoch_k'] = 100 * (df['close'] - low_14) / (high_14 - low_14)
+    df['stoch_d'] = df['stoch_k'].rolling(3).mean()
+    return df
+
+def _add_volatility_indicators(df):
+    """Add Bollinger Bands, ATR, and volume indicators"""
     # Bollinger Bands
-    for window in [20, 30]:
+    for window in BB_WINDOWS:
         df[f'bb_mid_{window}'] = df['close'].rolling(window).mean()
         df[f'bb_std_{window}'] = df['close'].rolling(window).std()
         df[f'bb_upper_{window}'] = df[f'bb_mid_{window}'] + 2 * df[f'bb_std_{window}']
@@ -54,27 +81,30 @@ def enrich_data(df):
     # Volume indicators
     df['volume_sma_20'] = df['volume'].rolling(20).mean()
     df['volume_ratio'] = df['volume'] / df['volume_sma_20']
+    return df
 
-    # Price momentum
-    for window in [3, 5, 10, 20]:
-        df[f'momentum_{window}'] = df['close'].pct_change(window)
-
-    # Stochastic
-    low_14 = df['low'].rolling(14).min()
-    high_14 = df['high'].rolling(14).max()
-    df['stoch_k'] = 100 * (df['close'] - low_14) / (high_14 - low_14)
-    df['stoch_d'] = df['stoch_k'].rolling(3).mean()
-
+def enrich_data(df):
+    """Precompute common technical indicators for strategy to use"""
+    df = _add_moving_averages(df)
+    df = _add_oscillators(df)
+    df = _add_volatility_indicators(df)
     return df
 
 def fetch_data(symbol='BTC/USDT', timeframe='1h', limit=720):
     """Fetch OHLCV data from Binance and enrich with indicators"""
-    exchange = ccxt.binance()
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df = enrich_data(df)
-    return df
+    try:
+        exchange = ccxt.binance()
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = enrich_data(df)
+        return df
+    except ccxt.NetworkError as e:
+        raise RuntimeError(f"Network error fetching {symbol}: {e}")
+    except ccxt.ExchangeError as e:
+        raise RuntimeError(f"Exchange error fetching {symbol}: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Unexpected error fetching {symbol}: {e}")
 
 def walk_forward_validation(strategy_instance, df, train_ratio=0.7, n_splits=3):
     """
@@ -117,6 +147,66 @@ def walk_forward_validation(strategy_instance, df, train_ratio=0.7, n_splits=3):
 
     return avg_metrics
 
+def _execute_trade(signal, position, capital, position_size, row, price, strategy_instance, df_slice, trades, equity_curve):
+    """Execute a single trade with realistic costs"""
+    if signal == 1 and position == 0:
+        # Market impact: larger orders = more slippage
+        volume_ratio = (capital * position_size) / (row['volume'] * price) if row['volume'] > 0 else 0
+        market_impact = BASE_SLIPPAGE * (1 + volume_ratio * 10)
+
+        total_cost = TAKER_FEE + market_impact
+        buy_price = price * (1 + total_cost)
+
+        position = (capital * position_size) / buy_price
+        capital -= capital * position_size
+        trade = {'type': 'buy', 'price': buy_price, 'time': row['timestamp'], 'cost': total_cost}
+        trades.append(trade)
+        if hasattr(strategy_instance, 'on_trade'):
+            strategy_instance.on_trade(trade, df_slice)
+
+    elif signal == -1 and position > 0:
+        volume_ratio = (position * price) / (row['volume'] * price) if row['volume'] > 0 else 0
+        market_impact = BASE_SLIPPAGE * (1 + volume_ratio * 10)
+
+        total_cost = TAKER_FEE + market_impact
+        sell_price = price * (1 - total_cost)
+
+        capital += position * sell_price
+        position = 0
+        trade = {'type': 'sell', 'price': sell_price, 'time': row['timestamp'], 'cost': total_cost}
+        trades.append(trade)
+        if hasattr(strategy_instance, 'on_trade'):
+            strategy_instance.on_trade(trade, df_slice)
+
+    return capital, position
+
+def _calculate_metrics(equity_curve, trades, initial_capital):
+    """Calculate backtest performance metrics"""
+    if len(equity_curve) == 0:
+        return {
+            'sharpe_ratio': 0, 'max_drawdown': 0, 'win_rate': 0,
+            'total_return': 0, 'trades': 0, 'final_capital': initial_capital, 'avg_cost': 0
+        }
+
+    equity_curve = np.array(equity_curve)
+    returns = np.diff(equity_curve) / equity_curve[:-1]
+    sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(365 * 24) if np.std(returns) > 0 else 0
+    max_drawdown = np.max(np.maximum.accumulate(equity_curve) - equity_curve) / np.max(equity_curve) if np.max(equity_curve) > 0 else 0
+    winning_trades = sum(1 for i in range(0, len(trades)-1, 2) if i+1 < len(trades) and trades[i+1]['price'] > trades[i]['price'])
+    win_rate = winning_trades / (len(trades) / 2) if len(trades) > 0 else 0
+
+    total_costs = sum(t.get('cost', 0) for t in trades) * initial_capital / len(trades) if trades else 0
+
+    return {
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown,
+        'win_rate': win_rate,
+        'total_return': (equity_curve[-1] - initial_capital) / initial_capital,
+        'trades': len(trades),
+        'final_capital': equity_curve[-1],
+        'avg_cost': total_costs
+    }
+
 def backtest(strategy_instance, df, initial_capital=10000):
     """Execute backtest with enhanced strategy interface"""
     df = df.copy()
@@ -135,11 +225,6 @@ def backtest(strategy_instance, df, initial_capital=10000):
     trades = []
     equity_curve = []
 
-    # Trading costs
-    MAKER_FEE = 0.0002  # 0.02% Binance maker fee
-    TAKER_FEE = 0.0004  # 0.04% Binance taker fee
-    BASE_SLIPPAGE = 0.0005  # 0.05% base slippage
-
     for i in range(len(df)):
         row = df.iloc[i]
         signal = row['signal']
@@ -151,59 +236,17 @@ def backtest(strategy_instance, df, initial_capital=10000):
             {'trades': trades, 'equity': equity_curve}
         )
 
-        # Execute trades with realistic costs
-        if signal == 1 and position == 0:
-            # Market impact: larger orders = more slippage
-            volume_ratio = (capital * position_size) / (row['volume'] * price) if row['volume'] > 0 else 0
-            market_impact = BASE_SLIPPAGE * (1 + volume_ratio * 10)  # Linear impact model
-
-            total_cost = TAKER_FEE + market_impact
-            buy_price = price * (1 + total_cost)
-
-            position = (capital * position_size) / buy_price
-            capital -= capital * position_size
-            trade = {'type': 'buy', 'price': buy_price, 'time': row['timestamp'], 'cost': total_cost}
-            trades.append(trade)
-            if hasattr(strategy_instance, 'on_trade'):
-                strategy_instance.on_trade(trade, df.iloc[:i+1])
-
-        elif signal == -1 and position > 0:
-            volume_ratio = (position * price) / (row['volume'] * price) if row['volume'] > 0 else 0
-            market_impact = BASE_SLIPPAGE * (1 + volume_ratio * 10)
-
-            total_cost = TAKER_FEE + market_impact
-            sell_price = price * (1 - total_cost)
-
-            capital += position * sell_price
-            position = 0
-            trade = {'type': 'sell', 'price': sell_price, 'time': row['timestamp'], 'cost': total_cost}
-            trades.append(trade)
-            if hasattr(strategy_instance, 'on_trade'):
-                strategy_instance.on_trade(trade, df.iloc[:i+1])
+        # Execute trades
+        capital, position = _execute_trade(
+            signal, position, capital, position_size, row, price,
+            strategy_instance, df.iloc[:i+1], trades, equity_curve
+        )
 
         equity = capital + position * price
         equity_curve.append(equity)
 
     # Calculate metrics
-    equity_curve = np.array(equity_curve)
-    returns = np.diff(equity_curve) / equity_curve[:-1]
-    sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(365 * 24) if np.std(returns) > 0 else 0
-    max_drawdown = np.max(np.maximum.accumulate(equity_curve) - equity_curve) / np.max(equity_curve) if np.max(equity_curve) > 0 else 0
-    winning_trades = sum(1 for i in range(0, len(trades)-1, 2) if i+1 < len(trades) and trades[i+1]['price'] > trades[i]['price'])
-    win_rate = winning_trades / (len(trades) / 2) if len(trades) > 0 else 0
-
-    # Calculate total costs
-    total_costs = sum(t.get('cost', 0) for t in trades) * initial_capital / len(trades) if trades else 0
-
-    return {
-        'sharpe_ratio': sharpe_ratio,
-        'max_drawdown': max_drawdown,
-        'win_rate': win_rate,
-        'total_return': (equity_curve[-1] - initial_capital) / initial_capital,
-        'trades': len(trades),
-        'final_capital': equity_curve[-1],
-        'avg_cost': total_costs
-    }
+    return _calculate_metrics(equity_curve, trades, initial_capital)
 
 def calculate_score(metrics):
     """Calculate composite score"""
