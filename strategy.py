@@ -29,10 +29,10 @@ def generate_signals(df):
         df: Dataframe with 'signal' column (1=buy, -1=sell, 0=hold)
     """
     df['signal'] = 0
-    # Buy: MA crossover + RSI not overbought
-    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 70), 'signal'] = 1
-    # Sell: MA crossover + RSI not oversold
-    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 30), 'signal'] = -1
+    # Buy: MA crossover + RSI not overbought (tighter)
+    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 65), 'signal'] = 1
+    # Sell: MA crossover + RSI not oversold (tighter)
+    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 35), 'signal'] = -1
     return df
 
 def position_sizing(df, capital):
