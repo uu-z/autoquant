@@ -20,6 +20,9 @@ def compute_factors(df):
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
 
+    # Price change rate
+    df['price_change'] = df['close'].pct_change(5)
+
     return df
 
 def generate_signals(df):
@@ -29,10 +32,10 @@ def generate_signals(df):
         df: Dataframe with 'signal' column (1=buy, -1=sell, 0=hold)
     """
     df['signal'] = 0
-    # Buy: MA crossover + RSI not overbought (tighter)
-    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 65), 'signal'] = 1
-    # Sell: MA crossover + RSI not oversold (tighter)
-    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 35), 'signal'] = -1
+    # Buy: MA crossover + RSI not overbought + positive trend
+    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 65) & (df['price_change'] > -0.02), 'signal'] = 1
+    # Sell: MA crossover + RSI not oversold + negative trend
+    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 35) & (df['price_change'] < 0.02), 'signal'] = -1
     return df
 
 def position_sizing(df, capital):
