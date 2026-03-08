@@ -1,48 +1,113 @@
-# strategy.py - AI implements strategy logic here
+# strategy.py - Factor-based strategy
 
-def compute_factors(df):
-    """Calculate technical indicators and custom factors
+from factors import MACrossover, RSIFilter, MomentumFilter, FactorCombiner
 
-    Args:
-        df: OHLCV dataframe (columns: open, high, low, close, volume, timestamp)
 
-    Returns:
-        df: Dataframe with added factor columns
+class Strategy:
     """
-    # Simple moving averages
-    df['sma_20'] = df['close'].rolling(17).mean()
-    df['sma_60'] = df['close'].rolling(53).mean()
+    Factor-based strategy using IC-validated factors.
 
-    # RSI
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss
-    df['rsi'] = 100 - (100 / (1 + rs))
-
-    # Price change rate
-    df['price_change'] = df['close'].pct_change(5)
-
-    return df
-
-def generate_signals(df):
-    """Generate trading signals
-
-    Returns:
-        df: Dataframe with 'signal' column (1=buy, -1=sell, 0=hold)
+    Based on research.py analysis:
+    - Top factors: RSI(14,65,35), Momentum(10,0.03), MA(15,60)
+    - Ensemble IC: ~0.15 (better than individual)
     """
-    df['signal'] = 0
-    # Buy: MA crossover + RSI not overbought + positive trend
-    df.loc[(df['sma_20'] > df['sma_60']) & (df['rsi'] < 65) & (df['price_change'] > -0.02), 'signal'] = 1
-    # Sell: MA crossover + RSI not oversold + negative trend
-    df.loc[(df['sma_20'] < df['sma_60']) & (df['rsi'] > 35) & (df['price_change'] < 0.02), 'signal'] = -1
-    return df
 
-def position_sizing(df, capital):
-    """Position sizing and risk management
+    def __init__(self):
+        # Build factor ensemble (use only positive IC factors)
+        self.factors = [
+            RSIFilter(14, 65, 35),      # IC: 0.077 (positive)
+            MACrossover(15, 60),        # IC: 0.064 (positive)
+        ]
 
-    Returns:
-        df: Dataframe with 'position_size' column (0-1 range, 1=full position)
-    """
-    df['position_size'] = 0.95  # Default 95% position
-    return df
+        # Weight by IC magnitude
+        self.combiner = FactorCombiner(
+            self.factors,
+            weights=[0.55, 0.45],  # Proportional to IC
+            method='vote'  # Use voting instead of weighted
+        )
+
+        # Risk management state
+        self.state = {
+            'consecutive_wins': 0,
+            'consecutive_losses': 0,
+            'total_trades': 0,
+        }
+
+        # Parameters
+        self.params = {
+            'position_base': 0.95,
+            'reduce_after_losses': 3,
+            'increase_after_wins': 3,
+        }
+
+    def initialize(self, df, initial_capital):
+        """Called once before backtest"""
+        pass
+
+    def compute_factors(self, df):
+        """
+        Compute factor signals.
+        All indicators are precomputed in prepare.py
+        """
+        # Factors compute their own signals
+        return df
+
+    def generate_signals(self, df):
+        """
+        Generate trading signals using factor ensemble.
+
+        Returns:
+            df with 'signal' column: 1=buy, -1=sell, 0=hold
+        """
+        # Use factor combiner
+        df['signal'] = self.combiner.compute(df)
+        return df
+
+    def position_sizing(self, df, capital, current_position, context):
+        """
+        Dynamic position sizing based on win/loss streaks.
+
+        Args:
+            df: Historical data up to current bar
+            capital: Available capital
+            current_position: Current position size
+            context: Dict with 'trades' and 'equity' history
+
+        Returns:
+            float: Position size (0-1 range)
+        """
+        size = self.params['position_base']
+
+        # Reduce after consecutive losses
+        if self.state['consecutive_losses'] >= self.params['reduce_after_losses']:
+            size *= 0.5
+
+        # Increase after consecutive wins (cautiously)
+        if self.state['consecutive_wins'] >= self.params['increase_after_wins']:
+            size = min(0.95, size * 1.1)
+
+        return size
+
+    def on_trade(self, trade, df):
+        """
+        Update state after each trade.
+
+        Args:
+            trade: Dict with trade info
+            df: Historical data up to current bar
+        """
+        self.state['total_trades'] += 1
+
+        # Track win/loss streaks (simplified)
+        if trade['type'] == 'sell':
+            # Estimate PnL from price change
+            if len(df) > 1:
+                entry_price = df['close'].iloc[-2]
+                exit_price = trade['price']
+
+                if exit_price > entry_price:
+                    self.state['consecutive_wins'] += 1
+                    self.state['consecutive_losses'] = 0
+                else:
+                    self.state['consecutive_losses'] += 1
+                    self.state['consecutive_wins'] = 0
